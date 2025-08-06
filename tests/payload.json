@@ -1,17 +1,14 @@
 {
-  "apiKey": "cpromos",
+  "apiKey": "testkey",
   "accounts": [
     {
-      "marianacarvalho": [
-        "babypromokids",
-        "promodetudo",
-        "toaquiamigas"
+      "testaccount1": [
+        "testcampaign1"
       ]
     },
     {
-      "thaissilva": [
-        "arainhadaspromocoes",
-        "reinodaspromocoes"
+      "testaccount2": [
+        "testcampaign2"
       ]
     }
   ]

@@ -126,7 +126,7 @@ export const updateInviteLinks = async (event = {}) => {
 // get all group items from account table
 async function getAllGroups(accountID) {
   const command = new QueryCommand({
-    TableName: accountID,
+    TableName: accountID.toLowerCase(),
     KeyConditionExpression: "PK = :pk",
     ExpressionAttributeValues: {
       ":pk": "WHATSAPP#GROUP",
@@ -140,7 +140,7 @@ async function getAllGroups(accountID) {
 // get all categories from account table
 async function getAllCategories(accountID) {
   const command = new QueryCommand({
-    TableName: accountID,
+    TableName: accountID.toLowerCase(),
     KeyConditionExpression: "PK = :pk",
     ExpressionAttributeValues: {
       ":pk": "WHATSAPP#GROUPCATEGORY",
