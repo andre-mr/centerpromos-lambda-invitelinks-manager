@@ -1,0 +1,28 @@
+{
+  "name": "lambda-whatsapp-invitelinks-manager",
+  "version": "1.0.0",
+  "description": "AWS Lambda for WhatsApp invitelinks management",
+  "main": "src/index.mjs",
+  "type": "module",
+  "scripts": {
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-dynamodb": "3.758.0",
+    "@aws-sdk/lib-dynamodb": "3.758.0",
+    "dotenv": "16.4.7",
+    "jest": "29.5.0"
+  },
+  "jest": {
+    "transform": {},
+    "testEnvironment": "node",
+    "testMatch": [
+      "**/__tests__/**/*.mjs",
+      "**/?(*.)+(spec|test).mjs",
+      "**/tests/**/*.test.mjs"
+    ],
+    "moduleNameMapper": {
+      "^(\\.{1,2}/.*)\\.js$": "$1"
+    }
+  }
+}

@@ -1,0 +1,29 @@
+[
+  {
+    "PK": "WHATSAPP#GROUP",
+    "SK": "123456789012345678@g.us",
+    "Campaign": "Campaign 1",
+    "Category": "category1",
+    "InviteCode": "xpto1234xpto",
+    "Members": 100,
+    "Name": "Group 1",
+    "Publishable": true,
+    "Updated": "2025-01-01T12:00:00Z"
+  },
+  {
+    "PK": "WHATSAPP#GROUPCATEGORY",
+    "SK": "CATEGORY1",
+    "Name": "category1"
+  },
+  {
+    "PK": "WHATSAPP#INVITELINKS",
+    "SK": "CAMPAIGN1#CATEGORY1",
+    "AccountSK": "ACCOUNT1",
+    "Campaign": "Campaign 1",
+    "Category": "MyDomain",
+    "InviteCodes": [
+      "123456789012345678@g.us|Group 1|xpto1234xpto"
+    ],
+    "Updated": "2025-01-01T13:00:00Z"
+  }
+]

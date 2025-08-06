@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Build
+deploy/
+function.zip
+
+# IDE
+.idea/
+.vscode/
+
+# Logs
+*.log
+
+# Environment variables
+.env
+
+# AWS SAM
+.aws-sam/

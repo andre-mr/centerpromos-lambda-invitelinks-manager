@@ -1,0 +1,18 @@
+{
+  "apiKey": "cpromos",
+  "accounts": [
+    {
+      "marianacarvalho": [
+        "babypromokids",
+        "promodetudo",
+        "toaquiamigas"
+      ]
+    },
+    {
+      "thaissilva": [
+        "arainhadaspromocoes",
+        "reinodaspromocoes"
+      ]
+    }
+  ]
+}
