@@ -63,6 +63,7 @@ describe("Lambda Handler - Atualização de Invite Links (cenário real de tabel
     expect(process.env.AMAZON_DYNAMODB_TABLE).toBeDefined();
     expect(process.env.API_KEY).toBeDefined();
     expect(process.env.ACCOUNT_TEST).toBeDefined();
+    expect(process.env.CAMPAIGN_TEST).toBeDefined();
   });
 
   test("deve atualizar com sucesso os invite links para a account/campanha de teste", async () => {

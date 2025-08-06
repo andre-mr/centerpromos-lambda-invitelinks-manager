@@ -5,19 +5,16 @@ let docClient = null;
 let AMAZON_DYNAMODB_TABLE = null;
 
 export const initializeClient = (event = {}) => {
-  if (!process.env.AMAZON_REGION) {
-    throw new Error("AMAZON_REGION is required");
-  }
-
   if (!process.env.AMAZON_DYNAMODB_TABLE) {
     throw new Error("AMAZON_DYNAMODB_TABLE is required");
   }
 
   AMAZON_DYNAMODB_TABLE = process.env.AMAZON_DYNAMODB_TABLE;
 
-  const config = {
-    region: process.env.AMAZON_REGION,
-  };
+  const config = {};
+  if (process.env.AMAZON_REGION) {
+    config.region = process.env.AMAZON_REGION;
+  }
 
   // only use credentials if provided in the event object (for testing)
   if (event.credentials) {
