@@ -1,8 +1,7 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 
-let docClientMain = null;
-let docClientSec = null;
+let docClient = null;
 let AMAZON_DYNAMODB_TABLE = null;
 
 export const initializeClient = (event = {}) => {
@@ -12,31 +11,21 @@ export const initializeClient = (event = {}) => {
 
   AMAZON_DYNAMODB_TABLE = process.env.AMAZON_DYNAMODB_TABLE;
 
-  const mainConfig = {};
-  mainConfig.region = process.env.AMAZON_MAIN_REGION || process.env.AMAZON_REGION;
+  const config = {};
+  if (process.env.AMAZON_REGION) {
+    config.region = process.env.AMAZON_REGION;
+  }
+
+  // only use credentials if provided in the event object (for testing)
   if (event.credentials) {
-    mainConfig.credentials = {
+    config.credentials = {
       accessKeyId: event.credentials.accessKeyId,
       secretAccessKey: event.credentials.secretAccessKey,
     };
   }
-  const clientMain = new DynamoDBClient(mainConfig);
-  docClientMain = DynamoDBDocumentClient.from(clientMain);
 
-  if (process.env.AMAZON_SEC_REGION) {
-    const secConfig = {};
-    secConfig.region = process.env.AMAZON_SEC_REGION;
-    if (event.credentials) {
-      secConfig.credentials = {
-        accessKeyId: event.credentials.accessKeyId,
-        secretAccessKey: event.credentials.secretAccessKey,
-      };
-    }
-    const clientSec = new DynamoDBClient(secConfig);
-    docClientSec = DynamoDBDocumentClient.from(clientSec);
-  } else {
-    docClientSec = docClientMain;
-  }
+  const client = new DynamoDBClient(config);
+  docClient = DynamoDBDocumentClient.from(client);
 };
 
 export const updateInviteLinks = async (event = {}) => {
@@ -144,7 +133,7 @@ async function getAllGroups(accountID) {
     },
   });
 
-  const response = await docClientMain.send(command);
+  const response = await docClient.send(command);
   return response.Items || [];
 }
 
@@ -158,7 +147,7 @@ async function getAllCategories(accountID) {
     },
   });
 
-  const response = await docClientMain.send(command);
+  const response = await docClient.send(command);
   return response.Items || [];
 }
 
@@ -196,7 +185,7 @@ async function updateInviteLinksItem(item) {
     ExpressionAttributeValues: expressionAttributeValues,
   });
 
-  const result = await docClientSec.send(command);
+  const result = await docClient.send(command);
   if (result.$metadata.httpStatusCode == 200) {
     return true;
   }

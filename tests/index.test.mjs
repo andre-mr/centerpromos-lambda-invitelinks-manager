@@ -59,7 +59,7 @@ describe("Lambda Handler - Atualização de Invite Links (cenário real de tabel
   beforeEach(() => {
     expect(process.env.AMAZON_ACCESS_KEY_ID).toBeDefined();
     expect(process.env.AMAZON_SECRET_ACCESS_KEY).toBeDefined();
-    expect(process.env.AMAZON_MAIN_REGION).toBeDefined();
+    expect(process.env.AMAZON_REGION).toBeDefined();
     expect(process.env.AMAZON_DYNAMODB_TABLE).toBeDefined();
     expect(process.env.API_KEY).toBeDefined();
     expect(process.env.ACCOUNT_TEST).toBeDefined();
