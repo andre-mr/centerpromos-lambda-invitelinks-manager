@@ -45,6 +45,7 @@ export const updateInviteLinks = async (event = {}) => {
         continue; // Skip to next account if this one is invalid
       }
 
+      const allCampaigns = await getAllCampaigns(accountID);
       const allGroups = await getAllGroups(accountID);
       const allCategories = await getAllCategories(accountID);
       const validCategorySKs = allCategories.map((cat) => cat.SK.toLowerCase());
@@ -93,14 +94,19 @@ export const updateInviteLinks = async (event = {}) => {
             .slice(0, 10) // Take the first 10
             .map((g) => `${g.SK}|${g.Name}|${g.InviteCode || g.InviteLink}`);
 
+          const campaignItem = allCampaigns.find((c) => c.SK.toLowerCase() === campaignKey.toLowerCase());
+
           const itemToUpdate = {
             PK: "WHATSAPP#INVITELINKS",
             AccountSK: accountID.toUpperCase(),
             Campaign: groups[0].Campaign,
             Category: categoryKey === "no_category" ? "" : categoryKey.toLowerCase(),
+            Domain: campaignItem?.DomainWhatsAppInviteLinks || "",
             InviteCodes: inviteCodes,
             Updated: updatedTime,
           };
+
+          console.log("itemToUpdate", itemToUpdate);
 
           if (categoryKey === "no_category") {
             itemToUpdate.SK = campaignKey.toUpperCase();
@@ -122,6 +128,20 @@ export const updateInviteLinks = async (event = {}) => {
     return false;
   }
 };
+
+// get all campaign items from account table
+async function getAllCampaigns(accountID) {
+  const command = new QueryCommand({
+    TableName: accountID.toLowerCase(),
+    KeyConditionExpression: "PK = :pk",
+    ExpressionAttributeValues: {
+      ":pk": "CAMPAIGN",
+    },
+  });
+
+  const response = await docClient.send(command);
+  return response.Items || [];
+}
 
 // get all group items from account table
 async function getAllGroups(accountID) {
@@ -155,6 +175,7 @@ async function getAllCategories(accountID) {
 async function updateInviteLinksItem(item) {
   const updateExpressionParts = [];
   const expressionAttributeValues = {};
+  const expressionAttributeNames = {};
 
   if (item.AccountSK) {
     updateExpressionParts.push("AccountSK = :accountSK");
@@ -164,6 +185,11 @@ async function updateInviteLinksItem(item) {
   expressionAttributeValues[":campaign"] = item.Campaign || "";
   updateExpressionParts.push("Category = :category");
   expressionAttributeValues[":category"] = item.Category || "";
+  if (item.Domain !== undefined) {
+    updateExpressionParts.push("#domain = :domain");
+    expressionAttributeValues[":domain"] = item.Domain || "";
+    expressionAttributeNames["#domain"] = "Domain";
+  }
   if (item.InviteCodes) {
     updateExpressionParts.push("InviteCodes = :inviteCodes");
     expressionAttributeValues[":inviteCodes"] = item.InviteCodes || [];
@@ -175,15 +201,29 @@ async function updateInviteLinksItem(item) {
 
   const updateExpression = `SET ${updateExpressionParts.join(", ")}`;
 
-  const command = new UpdateCommand({
-    TableName: AMAZON_DYNAMODB_TABLE,
-    Key: {
-      PK: item.PK,
-      SK: item.SK,
-    },
-    UpdateExpression: updateExpression,
-    ExpressionAttributeValues: expressionAttributeValues,
-  });
+  const commandParams =
+    item.Domain !== undefined
+      ? {
+          TableName: AMAZON_DYNAMODB_TABLE,
+          Key: {
+            PK: item.PK,
+            SK: item.SK,
+          },
+          UpdateExpression: updateExpression,
+          ExpressionAttributeValues: expressionAttributeValues,
+          ExpressionAttributeNames: expressionAttributeNames,
+        }
+      : {
+          TableName: AMAZON_DYNAMODB_TABLE,
+          Key: {
+            PK: item.PK,
+            SK: item.SK,
+          },
+          UpdateExpression: updateExpression,
+          ExpressionAttributeValues: expressionAttributeValues,
+        };
+
+  const command = new UpdateCommand(commandParams);
 
   const result = await docClient.send(command);
   if (result.$metadata.httpStatusCode == 200) {
