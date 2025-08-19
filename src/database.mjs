@@ -106,8 +106,6 @@ export const updateInviteLinks = async (event = {}) => {
             Updated: updatedTime,
           };
 
-          console.log("itemToUpdate", itemToUpdate);
-
           if (categoryKey === "no_category") {
             itemToUpdate.SK = campaignKey.toUpperCase();
           } else {
@@ -118,6 +116,31 @@ export const updateInviteLinks = async (event = {}) => {
           await updateInviteLinksItem(itemToUpdate);
         }
       }
+
+      const allInviteLinksItems = await getAllCategoryInviteLinks(accountID);
+
+      const validSKsSet = new Set();
+      for (const campaignKey in groupsByCampaign) {
+        for (const categoryKey in groupsByCampaign[campaignKey]) {
+          if (categoryKey === "no_category") {
+            validSKsSet.add(campaignKey.toUpperCase());
+          } else {
+            validSKsSet.add(`${campaignKey.toUpperCase()}#${categoryKey.toUpperCase()}`);
+          }
+        }
+      }
+
+      for (const item of allInviteLinksItems) {
+        if (!validSKsSet.has(item.SK)) {
+          await updateInviteLinksItem({
+            PK: item.PK,
+            SK: item.SK,
+            InviteCodes: [],
+            Updated: updatedTime,
+          });
+        }
+      }
+
       // Pause for 1 second before processing the next account
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
@@ -164,6 +187,21 @@ async function getAllCategories(accountID) {
     KeyConditionExpression: "PK = :pk",
     ExpressionAttributeValues: {
       ":pk": "WHATSAPP#GROUPCATEGORY",
+    },
+  });
+
+  const response = await docClient.send(command);
+  return response.Items || [];
+}
+
+// get all invitelinks items from account table
+async function getAllCategoryInviteLinks(accountID) {
+  const command = new QueryCommand({
+    TableName: AMAZON_DYNAMODB_TABLE,
+    KeyConditionExpression: "PK = :pk and begins_with(SK, :sk)",
+    ExpressionAttributeValues: {
+      ":pk": "WHATSAPP#INVITELINKS",
+      ":sk": `${accountID.toUpperCase()}#`,
     },
   });
 
