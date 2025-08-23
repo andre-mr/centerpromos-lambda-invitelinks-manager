@@ -3,6 +3,7 @@ import { DynamoDBDocumentClient, QueryCommand, UpdateCommand } from "@aws-sdk/li
 
 let docClient = null;
 let AMAZON_DYNAMODB_TABLE = null;
+let defaultInviteLinksCache = null; // cache for items from the default table (keyed by SK)
 
 export const initializeClient = (event = {}) => {
   if (!process.env.AMAZON_DYNAMODB_TABLE) {
@@ -96,16 +97,21 @@ export const updateInviteLinks = async (event = {}) => {
 
           const campaignItem = allCampaigns.find((c) => c.SK.toLowerCase() === campaignKey.toLowerCase());
 
+          // Decide target table based on DomainWhatsAppInviteLinks
+          const hasDomainInviteLinks = !!(campaignItem && campaignItem.DomainWhatsAppInviteLinks);
+          const targetTable = hasDomainInviteLinks ? accountID.toLowerCase() : AMAZON_DYNAMODB_TABLE;
           const itemToUpdate = {
             PK: "WHATSAPP#INVITELINKS",
-            AccountSK: accountID.toUpperCase(),
             Campaign: groups[0].Campaign,
             Category: categoryKey === "no_category" ? "" : categoryKey.toLowerCase(),
             Domain: campaignItem?.DomainWhatsAppInviteLinks || "",
             InviteCodes: inviteCodes,
             Updated: updatedTime,
+            TableName: targetTable,
           };
 
+          // Unified SK schema (no account prefix):
+          // - SK = "CAMPAIGN" or "CAMPAIGN#CATEGORY"
           if (categoryKey === "no_category") {
             itemToUpdate.SK = campaignKey.toUpperCase();
           } else {
@@ -117,7 +123,25 @@ export const updateInviteLinks = async (event = {}) => {
         }
       }
 
-      const allInviteLinksItems = await getAllCategoryInviteLinks(accountID);
+      // get all invitelinks items for this account across both possible tables
+      // decide which tables to query for existing WHATSAPP#INVITELINKS items:
+      // - if all processed campaigns have DomainWhatsAppInviteLinks -> only account table
+      // - if none have -> only default table
+      // - otherwise -> both
+      let anyHasDomain = false;
+      let anyNoDomain = false;
+      for (const campaignKey in groupsByCampaign) {
+        const campaignItem = allCampaigns.find((c) => c.SK.toLowerCase() === campaignKey.toLowerCase());
+        if (campaignItem && campaignItem.DomainWhatsAppInviteLinks) {
+          anyHasDomain = true;
+        } else {
+          anyNoDomain = true;
+        }
+      }
+      const queryAccount = anyHasDomain;
+      const queryDefault = anyNoDomain;
+
+      const allInviteLinksItems = await getAllCategoryInviteLinks(accountID, { queryDefault, queryAccount });
 
       const validSKsSet = new Set();
       for (const campaignKey in groupsByCampaign) {
@@ -130,13 +154,19 @@ export const updateInviteLinks = async (event = {}) => {
         }
       }
 
-      for (const item of allInviteLinksItems) {
-        if (!validSKsSet.has(item.SK)) {
+      for (const wrappedItem of allInviteLinksItems) {
+        const item = wrappedItem.item;
+        const sourceTable = wrappedItem.tableName;
+        const skToCheck = item.SK; // SK is already "CAMPAIGN" or "CAMPAIGN#CATEGORY" in any table
+        // skToCheck is now in a format comparable with validSKsSet
+        if (!validSKsSet.has(skToCheck)) {
+          // clear InviteCodes in-place on the correct table
           await updateInviteLinksItem({
             PK: item.PK,
             SK: item.SK,
             InviteCodes: [],
             Updated: updatedTime,
+            TableName: sourceTable,
           });
         }
       }
@@ -194,19 +224,102 @@ async function getAllCategories(accountID) {
   return response.Items || [];
 }
 
-// get all invitelinks items from account table
-async function getAllCategoryInviteLinks(accountID) {
-  const command = new QueryCommand({
-    TableName: AMAZON_DYNAMODB_TABLE,
-    KeyConditionExpression: "PK = :pk and begins_with(SK, :sk)",
-    ExpressionAttributeValues: {
-      ":pk": "WHATSAPP#INVITELINKS",
-      ":sk": `${accountID.toUpperCase()}#`,
-    },
-  });
+// helper: load all WHATSAPP#INVITELINKS from default table into cache (paginated)
+async function loadDefaultInviteLinks() {
+  if (!AMAZON_DYNAMODB_TABLE) return;
+  defaultInviteLinksCache = new Map();
+  let ExclusiveStartKey = undefined;
+  try {
+    do {
+      const cmd = new QueryCommand({
+        TableName: AMAZON_DYNAMODB_TABLE,
+        KeyConditionExpression: "PK = :pk",
+        ExpressionAttributeValues: { ":pk": "WHATSAPP#INVITELINKS" },
+        ExclusiveStartKey,
+      });
+      const resp = await docClient.send(cmd);
+      const items = resp.Items || [];
+      for (const it of items) {
+        // store by SK (default table SK is CAMPAIGN or CAMPAIGN#CATEGORY per new schema)
+        defaultInviteLinksCache.set(it.SK, it);
+      }
+      ExclusiveStartKey = resp.LastEvaluatedKey;
+    } while (ExclusiveStartKey);
+  } catch (err) {
+    console.warn("Warning loading default invite links cache:", err && err.name ? err.name : err);
+    defaultInviteLinksCache = null;
+  }
+}
 
-  const response = await docClient.send(command);
-  return response.Items || [];
+// get all invitelinks items from account table and/or default table for the account
+async function getAllCategoryInviteLinks(accountID, options = {}) {
+  const { queryDefault = true, queryAccount = true } = options;
+  const results = [];
+
+  if (!queryDefault && !queryAccount) {
+    return results;
+  }
+
+  // 1) items stored in default (central) table
+  if (queryDefault) {
+    // load cache once (lazy) if not present
+    if (defaultInviteLinksCache === null) {
+      await loadDefaultInviteLinks();
+    }
+
+    if (defaultInviteLinksCache) {
+      for (const it of defaultInviteLinksCache.values()) {
+        // include all items from the default table (SK = CAMPAIGN or CAMPAIGN#CATEGORY)
+        results.push({ item: it, tableName: AMAZON_DYNAMODB_TABLE });
+      }
+    } else {
+      // fallback: query all items with PK=WHATSAPP#INVITELINKS
+      try {
+        const commandDefault = new QueryCommand({
+          TableName: AMAZON_DYNAMODB_TABLE,
+          KeyConditionExpression: "PK = :pk",
+          ExpressionAttributeValues: {
+            ":pk": "WHATSAPP#INVITELINKS",
+          },
+        });
+
+        const responseDefault = await docClient.send(commandDefault);
+        const itemsDefault = responseDefault.Items || [];
+        for (const it of itemsDefault) {
+          results.push({ item: it, tableName: AMAZON_DYNAMODB_TABLE });
+        }
+      } catch (err) {
+        console.warn("Warning querying default invite links table (fallback):", err && err.name ? err.name : err);
+      }
+    }
+  }
+
+  // 2) items stored in the account's own table (if requested)
+  if (queryAccount) {
+    try {
+      const accountTableName = accountID.toLowerCase();
+      const commandAccount = new QueryCommand({
+        TableName: accountTableName,
+        KeyConditionExpression: "PK = :pk",
+        ExpressionAttributeValues: {
+          ":pk": "WHATSAPP#INVITELINKS",
+        },
+      });
+
+      const responseAccount = await docClient.send(commandAccount);
+      const itemsAccount = responseAccount.Items || [];
+      for (const it of itemsAccount) {
+        results.push({ item: it, tableName: accountTableName });
+      }
+    } catch (err) {
+      console.warn(
+        `Warning querying account table ${accountID.toLowerCase()} for invite links:`,
+        err && err.name ? err.name : err
+      );
+    }
+  }
+
+  return results;
 }
 
 // last step: update each item in main table
@@ -215,14 +328,14 @@ async function updateInviteLinksItem(item) {
   const expressionAttributeValues = {};
   const expressionAttributeNames = {};
 
-  if (item.AccountSK) {
-    updateExpressionParts.push("AccountSK = :accountSK");
-    expressionAttributeValues[":accountSK"] = item.AccountSK;
+  if (item.Campaign) {
+    updateExpressionParts.push("Campaign = :campaign");
+    expressionAttributeValues[":campaign"] = item.Campaign || "";
   }
-  updateExpressionParts.push("Campaign = :campaign");
-  expressionAttributeValues[":campaign"] = item.Campaign || "";
-  updateExpressionParts.push("Category = :category");
-  expressionAttributeValues[":category"] = item.Category || "";
+  if (item.Category) {
+    updateExpressionParts.push("Category = :category");
+    expressionAttributeValues[":category"] = item.Category || "";
+  }
   if (item.Domain !== undefined) {
     updateExpressionParts.push("#domain = :domain");
     expressionAttributeValues[":domain"] = item.Domain || "";
@@ -239,32 +352,56 @@ async function updateInviteLinksItem(item) {
 
   const updateExpression = `SET ${updateExpressionParts.join(", ")}`;
 
-  const commandParams =
-    item.Domain !== undefined
-      ? {
-          TableName: AMAZON_DYNAMODB_TABLE,
-          Key: {
-            PK: item.PK,
-            SK: item.SK,
-          },
-          UpdateExpression: updateExpression,
-          ExpressionAttributeValues: expressionAttributeValues,
-          ExpressionAttributeNames: expressionAttributeNames,
-        }
-      : {
-          TableName: AMAZON_DYNAMODB_TABLE,
-          Key: {
-            PK: item.PK,
-            SK: item.SK,
-          },
-          UpdateExpression: updateExpression,
-          ExpressionAttributeValues: expressionAttributeValues,
-        };
+  const tableName = item.TableName || AMAZON_DYNAMODB_TABLE;
+
+  const commandParams = {
+    TableName: tableName,
+    Key: {
+      PK: item.PK,
+      SK: item.SK,
+    },
+    UpdateExpression: updateExpression,
+    ExpressionAttributeValues: expressionAttributeValues,
+  };
+
+  if (Object.keys(expressionAttributeNames).length > 0) {
+    commandParams.ExpressionAttributeNames = expressionAttributeNames;
+  }
 
   const command = new UpdateCommand(commandParams);
 
   const result = await docClient.send(command);
-  if (result.$metadata.httpStatusCode == 200) {
+  if (result.$metadata && result.$metadata.httpStatusCode == 200) {
+    // if we maintain a cache for default table, update it to reflect this write
+    try {
+      if (tableName === AMAZON_DYNAMODB_TABLE && defaultInviteLinksCache instanceof Map) {
+        // create/merge a lightweight representation (we only need fields used later)
+        const cached = Object.assign({}, defaultInviteLinksCache.get(item.SK) || {}, {
+          PK: item.PK,
+          SK: item.SK,
+          Campaign:
+            item.Campaign ||
+            (defaultInviteLinksCache.get(item.SK) && defaultInviteLinksCache.get(item.SK).Campaign) ||
+            "",
+          Category:
+            item.Category ||
+            (defaultInviteLinksCache.get(item.SK) && defaultInviteLinksCache.get(item.SK).Category) ||
+            "",
+          Domain:
+            item.Domain || (defaultInviteLinksCache.get(item.SK) && defaultInviteLinksCache.get(item.SK).Domain) || "",
+          InviteCodes: item.InviteCodes || [],
+          Updated:
+            item.Updated ||
+            (defaultInviteLinksCache.get(item.SK) && defaultInviteLinksCache.get(item.SK).Updated) ||
+            "",
+        });
+        defaultInviteLinksCache.set(item.SK, cached);
+      }
+    } catch (err) {
+      // non-fatal cache update error
+      console.warn("Warning updating default invite links cache after write:", err && err.name ? err.name : err);
+    }
+
     return true;
   }
   return false;
